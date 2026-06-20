@@ -1,8 +1,16 @@
 -- =========================================================
--- ShopXpert - 004_auth_triggers.sql
--- Objetivo:
--- Automatizar criação de perfis após cadastro no Auth
+-- ShopXpert - 004_auth_triggers_v2.sql
+-- Compatível com o schema real
 -- =========================================================
+
+-- =========================================================
+-- REMOVE TRIGGER ANTIGO
+-- =========================================================
+
+drop trigger if exists on_auth_user_created
+on auth.users;
+
+drop function if exists public.handle_new_user();
 
 -- =========================================================
 -- FUNÇÃO PRINCIPAL
@@ -14,19 +22,7 @@ language plpgsql
 security definer
 set search_path = public
 as $$
-declare
-    user_role public.user_role;
 begin
-
-    user_role :=
-        coalesce(
-            (new.raw_user_meta_data->>'role')::public.user_role,
-            'CONSUMIDOR'
-        );
-
-    -- =====================================================
-    -- PROFILE
-    -- =====================================================
 
     insert into public.profiles (
         id,
@@ -41,77 +37,25 @@ begin
     )
     values (
         new.id,
+
         coalesce(
-            new.raw_user_meta_data->>'nome',
+            new.raw_user_meta_data ->> 'nome',
             split_part(new.email, '@', 1)
         ),
+
         new.email,
-        new.raw_user_meta_data->>'telefone',
+
+        new.raw_user_meta_data ->> 'telefone',
+
         null,
-        user_role,
+
+        'CONSUMIDOR',
+
         true,
+
         now(),
         now()
     );
-
-    -- =====================================================
-    -- CONSUMIDOR
-    -- =====================================================
-
-    if user_role = 'CONSUMIDOR' then
-
-        insert into public.consumidores (
-            id,
-            profile_id,
-            premium_ativo,
-            total_economizado,
-            created_at,
-            updated_at
-        )
-        values (
-            gen_random_uuid(),
-            new.id,
-            false,
-            0,
-            now(),
-            now()
-        );
-
-    end if;
-
-    -- =====================================================
-    -- LOJISTA
-    -- =====================================================
-
-    if user_role = 'LOJISTA' then
-
-        insert into public.lojistas (
-            id,
-            profile_id,
-            nome_fantasia,
-            razao_social,
-            cnpj,
-            status_validacao,
-            premium_ativo,
-            created_at,
-            updated_at
-        )
-        values (
-            gen_random_uuid(),
-            new.id,
-            coalesce(
-                new.raw_user_meta_data->>'nome_fantasia',
-                'Novo Lojista'
-            ),
-            null,
-            null,
-            'pendente',
-            false,
-            now(),
-            now()
-        );
-
-    end if;
 
     return new;
 
@@ -119,14 +63,7 @@ end;
 $$;
 
 -- =========================================================
--- REMOVE TRIGGER ANTIGO
--- =========================================================
-
-drop trigger if exists on_auth_user_created
-on auth.users;
-
--- =========================================================
--- NOVO TRIGGER
+-- TRIGGER
 -- =========================================================
 
 create trigger on_auth_user_created
@@ -135,7 +72,7 @@ for each row
 execute function public.handle_new_user();
 
 -- =========================================================
--- FUNÇÃO PARA PROMOVER ADMIN
+-- PROMOVER ADMIN
 -- =========================================================
 
 create or replace function public.promover_admin(
@@ -158,11 +95,11 @@ end;
 $$;
 
 -- =========================================================
--- VALIDAÇÃO
+-- COMMENTS
 -- =========================================================
 
 comment on function public.handle_new_user()
-is 'Cria automaticamente profiles, consumidores e lojistas após cadastro no Auth';
+is 'Cria automaticamente apenas o profile após cadastro no Auth';
 
 comment on function public.promover_admin(text)
 is 'Promove um usuário existente para ADMIN';
